@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Тег для релиза (например, v5.0.0, 5.0.0-alpha, v5.0.11)'
+        description: 'Тег для релиза (например, 5.0.0-alpha)'
         required: true
         type: string
         default: '5.0.0-alpha'
@@ -55,7 +55,6 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      # --- Информация о раннере ---
       - name: Print runner info
         shell: bash
         run: |
@@ -74,7 +73,6 @@ jobs:
           echo "Disk space before:"
           df -h . 2>/dev/null || echo "Skipped on Windows"
 
-      # --- Checkout ---
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -88,7 +86,6 @@ jobs:
           echo "Branch: $(git branch --show-current)"
           echo "Tags: $(git tag --points-at HEAD)"
 
-      # --- Setup .NET ---
       - name: Setup .NET 10.0 SDK
         uses: actions/setup-dotnet@v4
         with:
@@ -115,13 +112,11 @@ jobs:
           echo "DOTNET_ROOT: $DOTNET_ROOT"
           echo "============================================"
 
-      # --- Restore ---
       - name: Restore dependencies
         run: |
           echo "Restoring packages for ${{ matrix.runtime }}..."
           dotnet restore src/dajet-metadata/dajet-metadata.csproj --runtime ${{ matrix.runtime }}
 
-      # --- Publish (Windows) ---
       - name: Publish library (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -141,7 +136,6 @@ jobs:
           Write-Host "Published files count: $fileCount"
           Write-Host "Published size: $sizeMB MB"
 
-      # --- Publish (Unix) ---
       - name: Publish library (Unix)
         if: runner.os != 'Windows'
         shell: bash
@@ -166,7 +160,6 @@ jobs:
           echo "Published files count: $(find ./publish/${{ matrix.artifact_name }} -type f 2>/dev/null | wc -l)"
           echo "Published size: $(du -sh ./publish/${{ matrix.artifact_name }} 2>/dev/null | cut -f1)"
 
-      # --- Копирование runtime как shared/Microsoft.NETCore.App/10.0.x (Windows) ---
       - name: Copy .NET Runtime as shared folder (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -194,7 +187,6 @@ jobs:
           Copy-Item -Path "$source\*" -Destination $dest -Recurse -Force
           Write-Host "Runtime copied to shared/Microsoft.NETCore.App/$($runtimeVersion.Name)"
           
-          # Hostfxr в host/fxr/10.0.x
           $fxrSource = "$dotnetRoot\host\fxr\$($runtimeVersion.Name)"
           if (Test-Path $fxrSource) {
             Write-Host "Copying hostfxr from: $fxrSource"
@@ -206,7 +198,6 @@ jobs:
             Write-Host "Hostfxr not found at: $fxrSource"
           }
 
-      # --- Копирование runtime как shared/Microsoft.NETCore.App/10.0.x (Unix) ---
       - name: Copy .NET Runtime as shared folder (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -230,7 +221,6 @@ jobs:
           cp -r "$SOURCE/"* "$DEST/"
           echo "Runtime copied to shared/Microsoft.NETCore.App/$RUNTIME_VERSION"
           
-          # Hostfxr в host/fxr/10.0.x
           FXR_SOURCE="$DOTNET_ROOT/host/fxr/$RUNTIME_VERSION"
           if [ -d "$FXR_SOURCE" ]; then
             echo "Copying hostfxr from: $FXR_SOURCE"
@@ -242,7 +232,6 @@ jobs:
             echo "Hostfxr not found at: $FXR_SOURCE"
           fi
 
-      # --- Создание runtimeconfig (Windows) ---
       - name: Create runtimeconfig for pythonnet (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -285,7 +274,6 @@ jobs:
           Write-Host "Content:"
           Get-Content $configPath | Write-Host
 
-      # --- Создание runtimeconfig (Unix) ---
       - name: Create runtimeconfig for pythonnet (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -321,7 +309,6 @@ jobs:
           echo "Content:"
           cat "$CONFIG_PATH"
 
-      # --- Финальная информация перед архивацией ---
       - name: Print publish summary
         shell: bash
         run: |
@@ -351,7 +338,6 @@ jobs:
             fi
           done
 
-      # --- Создание архива (Windows) ---
       - name: Create archive (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -371,7 +357,6 @@ jobs:
           $archiveSize = (Get-Item $archivePath).Length
           Write-Host "Archive created: $archivePath ($([math]::Round($archiveSize/1MB, 2)) MB)"
 
-      # --- Создание архива (Unix) ---
       - name: Create archive (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -392,7 +377,6 @@ jobs:
           ARCHIVE_SIZE=$(stat -c%s "$ARCHIVE_NAME" 2>/dev/null || stat -f%z "$ARCHIVE_NAME" 2>/dev/null)
           echo "Archive created: $ARCHIVE_NAME ($(echo "scale=2; $ARCHIVE_SIZE/1024/1024" | bc 2>/dev/null || echo "unknown") MB)"
 
-      # --- Загрузка артефакта ---
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -407,7 +391,6 @@ jobs:
           echo "Job completed for ${{ matrix.artifact_name }}"
           echo "============================================"
 
-  # --- Release ---
   release:
     needs: build
     if: |
@@ -444,6 +427,26 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "Release tag: $TAG"
 
+      - name: Delete existing release if any
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          echo "Checking for existing release with tag: $TAG"
+          
+          RELEASE_ID=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/$TAG" \
+            | grep -o '"id": [0-9]*' | head -1 | grep -o '[0-9]*')
+          
+          if [ -n "$RELEASE_ID" ]; then
+            echo "Deleting existing release ID: $RELEASE_ID"
+            curl -s -X DELETE -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID"
+            echo "Existing release deleted"
+          else
+            echo "No existing release found"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -460,3 +463,29 @@ jobs:
             | Windows | x64, ARM64 |
             | Linux | x64, ARM64 |
             | macOS | x64, ARM64 (Apple Silicon) |
+            
+            ### Structure
+            ```
+            win-x64/
+            ├── DaJet.Metadata.dll
+            ├── hostfxr.dll
+            ├── coreclr.dll
+            └── shared/
+                └── Microsoft.NETCore.App/
+                    └── 10.0.x/
+                        └── (runtime files)
+            ```
+
+             ### For pythonnet
+            All builds include full runtime in `shared/` folder and `DaJet.Metadata.runtimeconfig.json`.
+            files: ./artifacts/**/*
+            draft: false
+            prerelease: ${{ contains(steps.tag.outputs.tag, 'alpha') || contains(steps.tag.outputs.tag, 'beta') }}
+            generate_release_notes: true
+
+      - name: Print release URL
+        run: |
+          echo "============================================"
+          echo "Release created!"
+          echo "URL: https://github.com/${{ github.repository }}/releases/tag/${{ steps.tag.outputs.tag }}"
+          echo "============================================"

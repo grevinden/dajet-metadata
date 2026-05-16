@@ -69,11 +69,11 @@ jobs:
         run: dotnet --info
 
       - name: Restore dependencies
-        run: dotnet restore src/dajet-metadata.csproj
+        run: dotnet restore src/dajet-metadata/dajet-metadata.csproj
 
       - name: Publish self-contained app
         run: >
-          dotnet publish src/dajet-metadata.csproj
+          dotnet publish src/dajet-metadata/dajet-metadata.csproj
           --configuration Release
           --runtime ${{ matrix.runtime }}
           --self-contained true

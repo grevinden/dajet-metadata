@@ -71,18 +71,15 @@ jobs:
       - name: Restore dependencies
         run: dotnet restore src/dajet-metadata/dajet-metadata.csproj
 
-      - name: Publish self-contained app
+      - name: Publish library
         run: >
           dotnet publish src/dajet-metadata/dajet-metadata.csproj
           --configuration Release
           --runtime ${{ matrix.runtime }}
           --self-contained true
-          -p:PublishSingleFile=true
           -p:PublishTrimmed=false
           -p:DebugType=none
           -p:DebugSymbols=false
-          -p:UseSystemResourceKeys=true
-          -p:SatelliteResourceLanguages=en
           --output ./publish/${{ matrix.artifact_name }}
 
       - name: Create archive (Windows)
@@ -126,7 +123,7 @@ jobs:
           name: Release ${{ github.ref_name }}
           body: |
             ## 📦 Сборка библиотеки DaJet Metadata
-            - .NET 10.0 self-contained
+            - .NET 10.0 self-contained (включает все зависимости, включая .NET Runtime)
             - Архитектуры: x64, ARM64
             - Платформы: Windows, Linux, macOS
             - PublishTrimmed: false (максимальная надёжность)

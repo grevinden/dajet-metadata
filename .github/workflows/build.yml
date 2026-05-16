@@ -55,7 +55,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      # ─── Информация о раннере ───────────────────────────
+      # --- Информация о раннере ---
       - name: Print runner info
         shell: bash
         run: |
@@ -74,7 +74,7 @@ jobs:
           echo "Disk space before:"
           df -h . 2>/dev/null || echo "Skipped on Windows"
 
-      # ─── Checkout ───────────────────────────────────────
+      # --- Checkout ---
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -88,7 +88,7 @@ jobs:
           echo "Branch: $(git branch --show-current)"
           echo "Tags: $(git tag --points-at HEAD)"
 
-      # ─── Setup .NET ─────────────────────────────────────
+      # --- Setup .NET ---
       - name: Setup .NET 10.0 SDK
         uses: actions/setup-dotnet@v4
         with:
@@ -115,14 +115,36 @@ jobs:
           echo "DOTNET_ROOT: $DOTNET_ROOT"
           echo "============================================"
 
-      # ─── Restore ────────────────────────────────────────
+      # --- Restore ---
       - name: Restore dependencies
         run: |
           echo "Restoring packages for ${{ matrix.runtime }}..."
           dotnet restore src/dajet-metadata/dajet-metadata.csproj --runtime ${{ matrix.runtime }}
 
-      # ─── Publish ────────────────────────────────────────
-      - name: Publish library
+      # --- Publish (Windows) ---
+      - name: Publish library (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Write-Host "============================================"
+          Write-Host "Publishing for runtime: ${{ matrix.runtime }}"
+          Write-Host "Self-contained: true"
+          Write-Host "PublishTrimmed: false"
+          Write-Host "Output: ./publish/${{ matrix.artifact_name }}"
+          Write-Host "============================================"
+          
+          dotnet publish src/dajet-metadata/dajet-metadata.csproj --configuration Release --runtime ${{ matrix.runtime }} --self-contained true -p:PublishTrimmed=false -p:DebugType=none -p:DebugSymbols=false --output ./publish/${{ matrix.artifact_name }}
+          
+          Write-Host ""
+          $fileCount = (Get-ChildItem -Path ./publish/${{ matrix.artifact_name }} -File -Recurse).Count
+          $sizeMB = [math]::Round(((Get-ChildItem -Path ./publish/${{ matrix.artifact_name }} -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB), 2)
+          Write-Host "Published files count: $fileCount"
+          Write-Host "Published size: $sizeMB MB"
+
+      # --- Publish (Unix) ---
+      - name: Publish library (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
         run: |
           echo "============================================"
           echo "Publishing for runtime: ${{ matrix.runtime }}"
@@ -144,7 +166,7 @@ jobs:
           echo "Published files count: $(find ./publish/${{ matrix.artifact_name }} -type f 2>/dev/null | wc -l)"
           echo "Published size: $(du -sh ./publish/${{ matrix.artifact_name }} 2>/dev/null | cut -f1)"
 
-      # ─── Копирование полного runtime (Windows) ──────────
+      # --- Копирование полного runtime (Windows) ---
       - name: Copy full .NET Runtime (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -172,19 +194,19 @@ jobs:
           Write-Host "Files to copy: $filesCount"
           
           Copy-Item -Path "$runtimeSource\*" -Destination $runtimeDest -Recurse -Force
-          Write-Host "✅ Runtime copied"
+          Write-Host "Runtime copied"
           
           # Hostfxr
           $fxrSource = "$dotnetRoot\host\fxr\$($runtimeVersion.Name)"
           if (Test-Path $fxrSource) {
             Write-Host "Copying hostfxr from: $fxrSource"
             Copy-Item -Path "$fxrSource\*" -Destination $runtimeDest -Recurse -Force -ErrorAction SilentlyContinue
-            Write-Host "✅ Hostfxr copied"
+            Write-Host "Hostfxr copied"
           } else {
-            Write-Host "⚠️ Hostfxr not found at: $fxrSource"
+            Write-Host "Hostfxr not found at: $fxrSource"
           }
 
-      # ─── Копирование полного runtime (Unix) ─────────────
+      # --- Копирование полного runtime (Unix) ---
       - name: Copy full .NET Runtime (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -211,19 +233,19 @@ jobs:
           echo "Files to copy: $FILES_COUNT"
           
           cp -rv "$RUNTIME_SOURCE/"* "$RUNTIME_DEST"
-          echo "✅ Runtime copied"
+          echo "Runtime copied"
           
           # Hostfxr
           FXR_SOURCE="$DOTNET_ROOT/host/fxr/$RUNTIME_VERSION"
           if [ -d "$FXR_SOURCE" ]; then
             echo "Copying hostfxr from: $FXR_SOURCE"
-            cp -rv "$FXR_SOURCE/"* "$RUNTIME_DEST" 2>/dev/null || echo "⚠️ Some hostfxr files may already exist"
-            echo "✅ Hostfxr copied"
+            cp -rv "$FXR_SOURCE/"* "$RUNTIME_DEST" 2>/dev/null || echo "Some hostfxr files may already exist"
+            echo "Hostfxr copied"
           else
-            echo "⚠️ Hostfxr not found at: $FXR_SOURCE"
+            echo "Hostfxr not found at: $FXR_SOURCE"
           fi
 
-      # ─── Создание runtimeconfig (Windows) ───────────────
+      # --- Создание runtimeconfig (Windows) ---
       - name: Create runtimeconfig for pythonnet (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -262,11 +284,11 @@ jobs:
           $configPath = ".\publish\${{ matrix.artifact_name }}\DaJet.Metadata.runtimeconfig.json"
           $runtimeconfig | Out-File -FilePath $configPath -Encoding utf8
           
-          Write-Host "✅ Created: $configPath"
+          Write-Host "Created: $configPath"
           Write-Host "Content:"
           Get-Content $configPath | Write-Host
 
-      # ─── Создание runtimeconfig (Unix) ──────────────────
+      # --- Создание runtimeconfig (Unix) ---
       - name: Create runtimeconfig for pythonnet (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -298,11 +320,11 @@ jobs:
           }
           EOF
           
-          echo "✅ Created: $CONFIG_PATH"
+          echo "Created: $CONFIG_PATH"
           echo "Content:"
           cat "$CONFIG_PATH"
 
-      # ─── Финальная информация перед архивацией ──────────
+      # --- Финальная информация перед архивацией ---
       - name: Print publish summary
         shell: bash
         run: |
@@ -318,13 +340,13 @@ jobs:
           echo "Key files check:"
           for f in "DaJet.Metadata.dll" "coreclr.dll" "libcoreclr.so" "libcoreclr.dylib" "hostfxr.dll" "libhostfxr.so" "libhostfxr.dylib" "DaJet.Metadata.runtimeconfig.json"; do
             if find ./publish/${{ matrix.artifact_name }} -name "$f" 2>/dev/null | head -1; then
-              echo "  ✅ $f"
+              echo "  OK $f"
             else
-              echo "  ⚠️ $f NOT FOUND"
+              echo "  MISSING $f"
             fi
           done
 
-      # ─── Создание архива (Windows) ──────────────────────
+      # --- Создание архива (Windows) ---
       - name: Create archive (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -342,9 +364,9 @@ jobs:
           Compress-Archive -Path "$sourcePath\*" -DestinationPath $archivePath -Force
           
           $archiveSize = (Get-Item $archivePath).Length
-          Write-Host "✅ Archive created: $archivePath ($('{0:N2}' -f ($archiveSize/1MB)) MB)"
+          Write-Host "Archive created: $archivePath ($([math]::Round($archiveSize/1MB, 2)) MB)"
 
-      # ─── Создание архива (Unix) ─────────────────────────
+      # --- Создание архива (Unix) ---
       - name: Create archive (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -363,9 +385,9 @@ jobs:
           tar -czf "$ARCHIVE_NAME" "$SOURCE_DIR"
           
           ARCHIVE_SIZE=$(stat -c%s "$ARCHIVE_NAME" 2>/dev/null || stat -f%z "$ARCHIVE_NAME" 2>/dev/null)
-          echo "✅ Archive created: $ARCHIVE_NAME ($(echo "scale=2; $ARCHIVE_SIZE/1024/1024" | bc 2>/dev/null || echo "unknown") MB)"
+          echo "Archive created: $ARCHIVE_NAME ($(echo "scale=2; $ARCHIVE_SIZE/1024/1024" | bc 2>/dev/null || echo "unknown") MB)"
 
-      # ─── Загрузка артефакта ─────────────────────────────
+      # --- Загрузка артефакта ---
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -377,10 +399,10 @@ jobs:
         shell: bash
         run: |
           echo "============================================"
-          echo "✅ Job completed for ${{ matrix.artifact_name }}"
+          echo "Job completed for ${{ matrix.artifact_name }}"
           echo "============================================"
 
-  # ─── Release ────────────────────────────────────────────
+  # --- Release ---
   release:
     needs: build
     if: |
@@ -423,20 +445,20 @@ jobs:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: Release ${{ steps.tag.outputs.tag }}
           body: |
-            ## 📦 DaJet Metadata — Self-Contained .NET 10.0
+            ## DaJet Metadata — Self-Contained .NET 10.0
             
-            Полный .NET Runtime включён в сборку.
+            Full .NET Runtime included.
             
-            ### Платформы
-            | Платформа | Архитектура |
+            ### Platforms
+            | Platform | Architecture |
             |---|---|
             | Windows | x64, ARM64 |
             | Linux | x64, ARM64 |
             | macOS | x64, ARM64 (Apple Silicon) |
             
-            ### Для pythonnet
-            Все сборки включают полный runtime и `DaJet.Metadata.runtimeconfig.json` 
-            для работы через pythonnet без системного .NET.
+            ### For pythonnet
+            All builds include full runtime and DaJet.Metadata.runtimeconfig.json 
+            for use with pythonnet without system .NET.
           files: ./artifacts/**/*
           draft: false
           prerelease: ${{ contains(steps.tag.outputs.tag, 'alpha') || contains(steps.tag.outputs.tag, 'beta') }}
@@ -445,6 +467,6 @@ jobs:
       - name: Print release URL
         run: |
           echo "============================================"
-          echo "✅ Release created!"
+          echo "Release created!"
           echo "URL: https://github.com/${{ github.repository }}/releases/tag/${{ steps.tag.outputs.tag }}"
           echo "============================================"

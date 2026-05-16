@@ -166,81 +166,78 @@ jobs:
           echo "Published files count: $(find ./publish/${{ matrix.artifact_name }} -type f 2>/dev/null | wc -l)"
           echo "Published size: $(du -sh ./publish/${{ matrix.artifact_name }} 2>/dev/null | cut -f1)"
 
-      # --- Копирование полного runtime (Windows) ---
-      - name: Copy full .NET Runtime (Windows)
+      # --- Копирование runtime как shared/Microsoft.NETCore.App/10.0.x (Windows) ---
+      - name: Copy .NET Runtime as shared folder (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Write-Host "============================================"
-          Write-Host "Copying full .NET Runtime (Windows)"
+          Write-Host "Copying .NET Runtime as shared/Microsoft.NETCore.App"
           Write-Host "============================================"
           
           $dotnetRoot = "$env:ProgramFiles\dotnet"
           Write-Host "Dotnet root: $dotnetRoot"
           
-          $runtimeVersions = Get-ChildItem "$dotnetRoot\shared\Microsoft.NETCore.App" | Where-Object { $_.Name -like "10.0.*" }
-          Write-Host "Available 10.0 runtimes: $($runtimeVersions.Name -join ', ')"
+          $runtimeVersion = Get-ChildItem "$dotnetRoot\shared\Microsoft.NETCore.App" | 
+            Where-Object { $_.Name -like "10.0.*" } | 
+            Sort-Object Name -Descending | 
+            Select-Object -First 1
+          Write-Host "Runtime version: $($runtimeVersion.Name)"
           
-          $runtimeVersion = $runtimeVersions | Sort-Object Name -Descending | Select-Object -First 1
-          Write-Host "Selected runtime version: $($runtimeVersion.Name)"
+          $source = "$dotnetRoot\shared\Microsoft.NETCore.App\$($runtimeVersion.Name)"
+          $dest = ".\publish\${{ matrix.artifact_name }}\shared\Microsoft.NETCore.App\$($runtimeVersion.Name)"
           
-          $runtimeSource = "$dotnetRoot\shared\Microsoft.NETCore.App\$($runtimeVersion.Name)"
-          $runtimeDest = ".\publish\${{ matrix.artifact_name }}\"
+          Write-Host "Source: $source"
+          Write-Host "Dest: $dest"
           
-          Write-Host "Copying from: $runtimeSource"
-          Write-Host "Copying to: $runtimeDest"
+          New-Item -ItemType Directory -Force -Path $dest
+          Copy-Item -Path "$source\*" -Destination $dest -Recurse -Force
+          Write-Host "Runtime copied to shared/Microsoft.NETCore.App/$($runtimeVersion.Name)"
           
-          $filesCount = (Get-ChildItem $runtimeSource -Recurse -File).Count
-          Write-Host "Files to copy: $filesCount"
-          
-          Copy-Item -Path "$runtimeSource\*" -Destination $runtimeDest -Recurse -Force
-          Write-Host "Runtime copied"
-          
-          # Hostfxr
+          # Hostfxr в host/fxr/10.0.x
           $fxrSource = "$dotnetRoot\host\fxr\$($runtimeVersion.Name)"
           if (Test-Path $fxrSource) {
             Write-Host "Copying hostfxr from: $fxrSource"
-            Copy-Item -Path "$fxrSource\*" -Destination $runtimeDest -Recurse -Force -ErrorAction SilentlyContinue
-            Write-Host "Hostfxr copied"
+            $fxrDest = ".\publish\${{ matrix.artifact_name }}\host\fxr\$($runtimeVersion.Name)"
+            New-Item -ItemType Directory -Force -Path $fxrDest
+            Copy-Item -Path "$fxrSource\*" -Destination $fxrDest -Recurse -Force
+            Write-Host "Hostfxr copied to host/fxr/$($runtimeVersion.Name)"
           } else {
             Write-Host "Hostfxr not found at: $fxrSource"
           }
 
-      # --- Копирование полного runtime (Unix) ---
-      - name: Copy full .NET Runtime (Unix)
+      # --- Копирование runtime как shared/Microsoft.NETCore.App/10.0.x (Unix) ---
+      - name: Copy .NET Runtime as shared folder (Unix)
         if: runner.os != 'Windows'
         run: |
           echo "============================================"
-          echo "Copying full .NET Runtime (Unix)"
+          echo "Copying .NET Runtime as shared/Microsoft.NETCore.App"
           echo "============================================"
           
           DOTNET_ROOT="${DOTNET_ROOT:-$(dirname $(readlink -f $(which dotnet)))}"
           echo "DOTNET_ROOT: $DOTNET_ROOT"
           
-          echo "Available 10.0 runtimes:"
-          ls "$DOTNET_ROOT/shared/Microsoft.NETCore.App" | grep "^10.0."
-          
           RUNTIME_VERSION=$(ls "$DOTNET_ROOT/shared/Microsoft.NETCore.App" | grep "^10.0." | sort -V | tail -1)
-          echo "Selected runtime version: $RUNTIME_VERSION"
+          echo "Runtime version: $RUNTIME_VERSION"
           
-          RUNTIME_SOURCE="$DOTNET_ROOT/shared/Microsoft.NETCore.App/$RUNTIME_VERSION"
-          RUNTIME_DEST="./publish/${{ matrix.artifact_name }}/"
+          SOURCE="$DOTNET_ROOT/shared/Microsoft.NETCore.App/$RUNTIME_VERSION"
+          DEST="./publish/${{ matrix.artifact_name }}/shared/Microsoft.NETCore.App/$RUNTIME_VERSION"
           
-          echo "Source: $RUNTIME_SOURCE"
-          echo "Destination: $RUNTIME_DEST"
+          echo "Source: $SOURCE"
+          echo "Dest: $DEST"
           
-          FILES_COUNT=$(find "$RUNTIME_SOURCE" -type f | wc -l)
-          echo "Files to copy: $FILES_COUNT"
+          mkdir -p "$DEST"
+          cp -r "$SOURCE/"* "$DEST/"
+          echo "Runtime copied to shared/Microsoft.NETCore.App/$RUNTIME_VERSION"
           
-          cp -rv "$RUNTIME_SOURCE/"* "$RUNTIME_DEST"
-          echo "Runtime copied"
-          
-          # Hostfxr
+          # Hostfxr в host/fxr/10.0.x
           FXR_SOURCE="$DOTNET_ROOT/host/fxr/$RUNTIME_VERSION"
           if [ -d "$FXR_SOURCE" ]; then
             echo "Copying hostfxr from: $FXR_SOURCE"
-            cp -rv "$FXR_SOURCE/"* "$RUNTIME_DEST" 2>/dev/null || echo "Some hostfxr files may already exist"
-            echo "Hostfxr copied"
+            FXR_DEST="./publish/${{ matrix.artifact_name }}/host/fxr/$RUNTIME_VERSION"
+            mkdir -p "$FXR_DEST"
+            cp -r "$FXR_SOURCE/"* "$FXR_DEST/"
+            echo "Hostfxr copied to host/fxr/$RUNTIME_VERSION"
           else
             echo "Hostfxr not found at: $FXR_SOURCE"
           fi
@@ -336,6 +333,14 @@ jobs:
           echo ""
           echo "Top-level contents:"
           ls -la ./publish/${{ matrix.artifact_name }} 2>/dev/null || echo "Cannot list"
+          echo ""
+          echo "shared folder check:"
+          if [ -d "./publish/${{ matrix.artifact_name }}/shared/Microsoft.NETCore.App" ]; then
+            echo "  OK shared/Microsoft.NETCore.App exists"
+            ls "./publish/${{ matrix.artifact_name }}/shared/Microsoft.NETCore.App/"
+          else
+            echo "  MISSING shared/Microsoft.NETCore.App"
+          fi
           echo ""
           echo "Key files check:"
           for f in "DaJet.Metadata.dll" "coreclr.dll" "libcoreclr.so" "libcoreclr.dylib" "hostfxr.dll" "libhostfxr.so" "libhostfxr.dylib" "DaJet.Metadata.runtimeconfig.json"; do
@@ -447,7 +452,7 @@ jobs:
           body: |
             ## DaJet Metadata — Self-Contained .NET 10.0
             
-            Full .NET Runtime included.
+            Full .NET Runtime included in shared/Microsoft.NETCore.App/.
             
             ### Platforms
             | Platform | Architecture |
@@ -456,17 +461,4 @@ jobs:
             | Linux | x64, ARM64 |
             | macOS | x64, ARM64 (Apple Silicon) |
             
-            ### For pythonnet
-            All builds include full runtime and DaJet.Metadata.runtimeconfig.json 
-            for use with pythonnet without system .NET.
-          files: ./artifacts/**/*
-          draft: false
-          prerelease: ${{ contains(steps.tag.outputs.tag, 'alpha') || contains(steps.tag.outputs.tag, 'beta') }}
-          generate_release_notes: true
-
-      - name: Print release URL
-        run: |
-          echo "============================================"
-          echo "Release created!"
-          echo "URL: https://github.com/${{ github.repository }}/releases/tag/${{ steps.tag.outputs.tag }}"
-          echo "============================================"
+            ### Structure

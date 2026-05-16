@@ -452,7 +452,7 @@ jobs:
           body: |
             ## DaJet Metadata — Self-Contained .NET 10.0
             
-            Full .NET Runtime included in shared/Microsoft.NETCore.App/.
+            Full .NET Runtime included in `shared/Microsoft.NETCore.App/`.
             
             ### Platforms
             | Platform | Architecture |

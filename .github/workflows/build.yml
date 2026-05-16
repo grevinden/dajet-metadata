@@ -5,9 +5,16 @@ on:
     branches: [ "main" ]
     tags: [ "v*" ]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Тег для релиза (например, v5.0.0, 5.0.0-alpha, v5.0.11)'
+        required: true
+        type: string
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
 
 permissions:
   contents: write
@@ -19,27 +26,27 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
+          - os: windows-2025
             runtime: win-x64
             artifact_name: dajet-metadata-win-x64
             archive_ext: zip
-          - os: windows-latest
+          - os: windows-2025
             runtime: win-arm64
             artifact_name: dajet-metadata-win-arm64
             archive_ext: zip
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             runtime: linux-x64
             artifact_name: dajet-metadata-linux-x64
             archive_ext: tar.gz
-          - os: ubuntu-latest
+          - os: ubuntu-24.04-arm
             runtime: linux-arm64
             artifact_name: dajet-metadata-linux-arm64
             archive_ext: tar.gz
-          - os: macos-latest
+          - os: macos-15
             runtime: osx-x64
             artifact_name: dajet-metadata-osx-x64
             archive_ext: tar.gz
-          - os: macos-latest
+          - os: macos-15
             runtime: osx-arm64
             artifact_name: dajet-metadata-osx-arm64
             archive_ext: tar.gz
@@ -51,12 +58,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Setup .NET 10.0 SDK
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
           dotnet-quality: 'ga'
+          cache: true
+          cache-dependency-path: |
+            src/dajet-metadata/dajet-metadata.csproj
+            src/dajet-data/dajet-data.csproj
+            src/dajet-type-system/dajet-type-system.csproj
 
       - name: Restore dependencies
         run: dotnet restore src/dajet-metadata/dajet-metadata.csproj
@@ -73,15 +86,15 @@ jobs:
           --output ./publish/${{ matrix.artifact_name }}
 
       - name: Create archive (Windows)
-        if: matrix.os == 'windows-latest'
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Compress-Archive `
             -Path "./publish/${{ matrix.artifact_name }}/*" `
             -DestinationPath "./publish/${{ matrix.artifact_name }}.zip"
 
-      - name: Create archive (Linux/Mac)
-        if: matrix.os != 'windows-latest'
+      - name: Create archive (Unix)
+        if: runner.os != 'Windows'
         run: |
           cd ./publish
           tar -czf "${{ matrix.artifact_name }}.tar.gz" "${{ matrix.artifact_name }}"
@@ -95,18 +108,30 @@ jobs:
 
   release:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    if: |
+      startsWith(github.ref, 'refs/tags/v') ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: ./artifacts
 
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Release ${{ github.ref_name }}
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: Release ${{ steps.tag.outputs.tag }}
           body: |
             ## 📦 DaJet Metadata — Self-Contained .NET 10.0
             - Архитектуры: **x64**, **ARM64**
@@ -114,5 +139,5 @@ jobs:
             - Включает .NET Runtime (не требует установки)
           files: ./artifacts/**/*
           draft: false
-          prerelease: false
+          prerelease: ${{ contains(steps.tag.outputs.tag, 'alpha') || contains(steps.tag.outputs.tag, 'beta') }}
           generate_release_notes: true

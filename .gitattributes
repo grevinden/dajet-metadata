@@ -2,3 +2,4 @@
 * text=auto
 .gitattributes merge=ours
 .github/ merge=ours
+README.md merge=ours

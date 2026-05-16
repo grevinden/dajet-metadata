@@ -1,3 +1,5 @@
+[![Build Release (Self-Contained .NET 10.0)](https://github.com/grevinden/dajet-metadata/actions/workflows/build.yml/badge.svg)](https://github.com/grevinden/dajet-metadata/actions/workflows/build.yml)
+
 # DaJet Metadata
 библиотека для чтения, анализа и восстановления метаданных информационных баз 1С:Предприятие 8 напрямую из таблиц Microsoft SQL Server и PostgreSQL.
 

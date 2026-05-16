@@ -85,6 +85,38 @@ jobs:
           -p:DebugSymbols=false
           --output ./publish/${{ matrix.artifact_name }}
 
+      - name: Copy full .NET Runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dotnetRoot = "$env:ProgramFiles\dotnet"
+          $runtimeVersion = Get-ChildItem "$dotnetRoot\shared\Microsoft.NETCore.App" | 
+            Where-Object { $_.Name -like "10.0.*" } | 
+            Sort-Object Name -Descending | 
+            Select-Object -First 1
+          
+          Write-Host "Copying runtime version: $($runtimeVersion.Name)"
+          Copy-Item -Path "$dotnetRoot\shared\Microsoft.NETCore.App\$($runtimeVersion.Name)\*" `
+                    -Destination ".\publish\${{ matrix.artifact_name }}\" -Recurse -Force
+          
+          # Копируем hostfxr.dll (нужен для pythonnet)
+          Copy-Item -Path "$dotnetRoot\host\fxr\$($runtimeVersion.Name)\*" `
+                    -Destination ".\publish\${{ matrix.artifact_name }}\" -Recurse -Force -ErrorAction SilentlyContinue
+
+      - name: Copy full .NET Runtime (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          DOTNET_ROOT=$(dirname $(readlink -f $(which dotnet)))
+          RUNTIME_VERSION=$(ls "$DOTNET_ROOT/shared/Microsoft.NETCore.App" | grep "^10.0." | sort -V | tail -1)
+          
+          echo "Copying runtime version: $RUNTIME_VERSION"
+          cp -r "$DOTNET_ROOT/shared/Microsoft.NETCore.App/$RUNTIME_VERSION/"* \
+                "./publish/${{ matrix.artifact_name }}/"
+          
+          # Копируем hostfxr
+          cp -r "$DOTNET_ROOT/host/fxr/$RUNTIME_VERSION/"* \
+                "./publish/${{ matrix.artifact_name }}/" 2>/dev/null || true
+
       - name: Create archive (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -136,7 +168,7 @@ jobs:
             ## 📦 DaJet Metadata — Self-Contained .NET 10.0
             - Архитектуры: **x64**, **ARM64**
             - Платформы: **Windows**, **Linux**, **macOS**
-            - Включает .NET Runtime (не требует установки)
+            - Включает полный .NET Runtime (не требует установки)
           files: ./artifacts/**/*
           draft: false
           prerelease: ${{ contains(steps.tag.outputs.tag, 'alpha') || contains(steps.tag.outputs.tag, 'beta') }}

@@ -5,11 +5,9 @@ on:
     branches: [ "main" ]
     tags: [ "v*" ]
   workflow_dispatch:
-    inputs:
-      version_suffix:
-        description: 'Суффикс версии (например, beta.1)'
-        required: false
-        default: ''
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 permissions:
   contents: write
@@ -21,7 +19,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # --- Windows ---
           - os: windows-latest
             runtime: win-x64
             artifact_name: dajet-metadata-win-x64
@@ -30,8 +27,6 @@ jobs:
             runtime: win-arm64
             artifact_name: dajet-metadata-win-arm64
             archive_ext: zip
-
-          # --- Linux ---
           - os: ubuntu-latest
             runtime: linux-x64
             artifact_name: dajet-metadata-linux-x64
@@ -40,8 +35,6 @@ jobs:
             runtime: linux-arm64
             artifact_name: dajet-metadata-linux-arm64
             archive_ext: tar.gz
-
-          # --- macOS ---
           - os: macos-latest
             runtime: osx-x64
             artifact_name: dajet-metadata-osx-x64
@@ -65,9 +58,6 @@ jobs:
           dotnet-version: '10.0.x'
           dotnet-quality: 'ga'
 
-      - name: Print .NET version
-        run: dotnet --info
-
       - name: Restore dependencies
         run: dotnet restore src/dajet-metadata/dajet-metadata.csproj
 
@@ -88,13 +78,13 @@ jobs:
         run: |
           Compress-Archive `
             -Path "./publish/${{ matrix.artifact_name }}/*" `
-            -DestinationPath "./publish/${{ matrix.artifact_name }}.${{ matrix.archive_ext }}"
+            -DestinationPath "./publish/${{ matrix.artifact_name }}.zip"
 
       - name: Create archive (Linux/Mac)
         if: matrix.os != 'windows-latest'
         run: |
           cd ./publish
-          tar -czf "${{ matrix.artifact_name }}.${{ matrix.archive_ext }}" "${{ matrix.artifact_name }}"
+          tar -czf "${{ matrix.artifact_name }}.tar.gz" "${{ matrix.artifact_name }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -107,32 +97,21 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-
     steps:
-      - name: Download all artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: ./artifacts
-
-      - name: Display structure
-        run: ls -R ./artifacts
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: Release ${{ github.ref_name }}
           body: |
-            ## 📦 Сборка библиотеки DaJet Metadata
-            - .NET 10.0 self-contained (включает все зависимости, включая .NET Runtime)
-            - Архитектуры: x64, ARM64
-            - Платформы: Windows, Linux, macOS
-            - PublishTrimmed: false (максимальная надёжность)
-
-            | Платформа | Архитектура |
-            |---|---|
-            | Windows | x64, ARM64 |
-            | Linux | x64, ARM64 |
-            | macOS | x64, ARM64 (Apple Silicon) |
+            ## 📦 DaJet Metadata — Self-Contained .NET 10.0
+            - Архитектуры: **x64**, **ARM64**
+            - Платформы: **Windows**, **Linux**, **macOS**
+            - Включает .NET Runtime (не требует установки)
           files: ./artifacts/**/*
           draft: false
           prerelease: false

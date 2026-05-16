@@ -10,7 +10,7 @@ on:
         description: 'Тег для релиза (например, 5.0.0-alpha)'
         required: true
         type: string
-        default: '5.0.0-alpha'
+        default: 'v5.0.0-alpha'
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -127,9 +127,9 @@ jobs:
           Write-Host "PublishTrimmed: false"
           Write-Host "Output: ./publish/${{ matrix.artifact_name }}"
           Write-Host "============================================"
-          
+
           dotnet publish src/dajet-metadata/dajet-metadata.csproj --configuration Release --runtime ${{ matrix.runtime }} --self-contained true -p:PublishTrimmed=false -p:DebugType=none -p:DebugSymbols=false --output ./publish/${{ matrix.artifact_name }}
-          
+
           Write-Host ""
           $fileCount = (Get-ChildItem -Path ./publish/${{ matrix.artifact_name }} -File -Recurse).Count
           $sizeMB = [math]::Round(((Get-ChildItem -Path ./publish/${{ matrix.artifact_name }} -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB), 2)
@@ -146,7 +146,7 @@ jobs:
           echo "PublishTrimmed: false"
           echo "Output: ./publish/${{ matrix.artifact_name }}"
           echo "============================================"
-          
+
           dotnet publish src/dajet-metadata/dajet-metadata.csproj \
             --configuration Release \
             --runtime ${{ matrix.runtime }} \
@@ -155,7 +155,7 @@ jobs:
             -p:DebugType=none \
             -p:DebugSymbols=false \
             --output ./publish/${{ matrix.artifact_name }}
-          
+
           echo ""
           echo "Published files count: $(find ./publish/${{ matrix.artifact_name }} -type f 2>/dev/null | wc -l)"
           echo "Published size: $(du -sh ./publish/${{ matrix.artifact_name }} 2>/dev/null | cut -f1)"
@@ -167,26 +167,26 @@ jobs:
           Write-Host "============================================"
           Write-Host "Copying .NET Runtime as shared/Microsoft.NETCore.App"
           Write-Host "============================================"
-          
+
           $dotnetRoot = "$env:ProgramFiles\dotnet"
           Write-Host "Dotnet root: $dotnetRoot"
-          
+
           $runtimeVersion = Get-ChildItem "$dotnetRoot\shared\Microsoft.NETCore.App" | 
             Where-Object { $_.Name -like "10.0.*" } | 
             Sort-Object Name -Descending | 
             Select-Object -First 1
           Write-Host "Runtime version: $($runtimeVersion.Name)"
-          
+
           $source = "$dotnetRoot\shared\Microsoft.NETCore.App\$($runtimeVersion.Name)"
           $dest = ".\publish\${{ matrix.artifact_name }}\shared\Microsoft.NETCore.App\$($runtimeVersion.Name)"
-          
+
           Write-Host "Source: $source"
           Write-Host "Dest: $dest"
-          
+
           New-Item -ItemType Directory -Force -Path $dest
           Copy-Item -Path "$source\*" -Destination $dest -Recurse -Force
           Write-Host "Runtime copied to shared/Microsoft.NETCore.App/$($runtimeVersion.Name)"
-          
+
           $fxrSource = "$dotnetRoot\host\fxr\$($runtimeVersion.Name)"
           if (Test-Path $fxrSource) {
             Write-Host "Copying hostfxr from: $fxrSource"
@@ -204,23 +204,23 @@ jobs:
           echo "============================================"
           echo "Copying .NET Runtime as shared/Microsoft.NETCore.App"
           echo "============================================"
-          
+
           DOTNET_ROOT="${DOTNET_ROOT:-$(dirname $(readlink -f $(which dotnet)))}"
           echo "DOTNET_ROOT: $DOTNET_ROOT"
-          
+
           RUNTIME_VERSION=$(ls "$DOTNET_ROOT/shared/Microsoft.NETCore.App" | grep "^10.0." | sort -V | tail -1)
           echo "Runtime version: $RUNTIME_VERSION"
-          
+
           SOURCE="$DOTNET_ROOT/shared/Microsoft.NETCore.App/$RUNTIME_VERSION"
           DEST="./publish/${{ matrix.artifact_name }}/shared/Microsoft.NETCore.App/$RUNTIME_VERSION"
-          
+
           echo "Source: $SOURCE"
           echo "Dest: $DEST"
-          
+
           mkdir -p "$DEST"
           cp -r "$SOURCE/"* "$DEST/"
           echo "Runtime copied to shared/Microsoft.NETCore.App/$RUNTIME_VERSION"
-          
+
           FXR_SOURCE="$DOTNET_ROOT/host/fxr/$RUNTIME_VERSION"
           if [ -d "$FXR_SOURCE" ]; then
             echo "Copying hostfxr from: $FXR_SOURCE"
@@ -232,6 +232,55 @@ jobs:
             echo "Hostfxr not found at: $FXR_SOURCE"
           fi
 
+      - name: Remove duplicate runtime files from root (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Write-Host "============================================"
+          Write-Host "Removing duplicate runtime files from root (Windows)"
+          Write-Host "============================================"
+          
+          $root = ".\publish\${{ matrix.artifact_name }}"
+          
+          $toRemove = Get-ChildItem -Path $root -File | Where-Object {
+            ($_.Name -like "System.*.dll") -or
+            ($_.Name -like "Microsoft.*.dll" -and $_.Name -notlike "DaJet.*" -and $_.Name -notlike "Microsoft.Data.*") -or
+            ($_.Name -in @("netstandard.dll", "mscorlib.dll", "WindowsBase.dll", "Microsoft.NETCore.App.deps.json", "Microsoft.NETCore.App.runtimeconfig.json"))
+          }
+          
+          Write-Host "Removing $($toRemove.Count) duplicate files..."
+          $toRemove | ForEach-Object { Write-Host "  Removing: $($_.Name)" }
+          $toRemove | Remove-Item -Force
+          
+          Write-Host "Remaining files in root:"
+          Get-ChildItem -Path $root -File | Select-Object Name | ForEach-Object { Write-Host "  $($_.Name)" }
+
+      - name: Remove duplicate runtime files from root (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          echo "============================================"
+          echo "Removing duplicate runtime files from root (Unix)"
+          echo "============================================"
+          
+          ROOT="./publish/${{ matrix.artifact_name }}"
+          
+          echo "Removing System.*.dll, Microsoft.*.dll (except DaJet.* and Microsoft.Data.*), netstandard.dll, mscorlib.dll, WindowsBase.dll..."
+          find "$ROOT" -maxdepth 1 -type f \( \
+            -name "System.*.dll" -o \
+            -name "System.*.so" -o \
+            -name "System.*.dylib" -o \
+            \( -name "Microsoft.*.dll" ! -name "DaJet.*" ! -name "Microsoft.Data.*" \) -o \
+            -name "netstandard.dll" -o \
+            -name "mscorlib.dll" -o \
+            -name "WindowsBase.dll" -o \
+            -name "Microsoft.NETCore.App.deps.json" -o \
+            -name "Microsoft.NETCore.App.runtimeconfig.json" \
+          \) -delete -print
+          
+          echo ""
+          echo "Remaining files in root:"
+          ls -la "$ROOT"
+
       - name: Create runtimeconfig for pythonnet (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -239,15 +288,15 @@ jobs:
           Write-Host "============================================"
           Write-Host "Creating runtimeconfig.json (Windows)"
           Write-Host "============================================"
-          
+
           $dotnetRoot = "$env:ProgramFiles\dotnet"
           $runtimeVersion = Get-ChildItem "$dotnetRoot\shared\Microsoft.NETCore.App" | 
             Where-Object { $_.Name -like "10.0.*" } | 
             Sort-Object Name -Descending | 
             Select-Object -First 1
-          
+
           Write-Host "Runtime version for config: $($runtimeVersion.Name)"
-          
+
           $runtimeconfig = @"
           {
             "runtimeOptions": {
@@ -266,10 +315,10 @@ jobs:
             }
           }
           "@
-          
+
           $configPath = ".\publish\${{ matrix.artifact_name }}\DaJet.Metadata.runtimeconfig.json"
           $runtimeconfig | Out-File -FilePath $configPath -Encoding utf8
-          
+
           Write-Host "Created: $configPath"
           Write-Host "Content:"
           Get-Content $configPath | Write-Host
@@ -280,12 +329,12 @@ jobs:
           echo "============================================"
           echo "Creating runtimeconfig.json (Unix)"
           echo "============================================"
-          
+
           RUNTIME_VERSION=$(ls "$DOTNET_ROOT/shared/Microsoft.NETCore.App" | grep "^10.0." | sort -V | tail -1)
           echo "Runtime version for config: $RUNTIME_VERSION"
-          
+
           CONFIG_PATH="./publish/${{ matrix.artifact_name }}/DaJet.Metadata.runtimeconfig.json"
-          
+
           cat > "$CONFIG_PATH" << EOF
           {
             "runtimeOptions": {
@@ -304,7 +353,7 @@ jobs:
             }
           }
           EOF
-          
+
           echo "Created: $CONFIG_PATH"
           echo "Content:"
           cat "$CONFIG_PATH"
@@ -345,15 +394,15 @@ jobs:
           Write-Host "============================================"
           Write-Host "Creating ZIP archive"
           Write-Host "============================================"
-          
+
           $archivePath = "./publish/${{ matrix.artifact_name }}.zip"
           $sourcePath = "./publish/${{ matrix.artifact_name }}"
-          
+
           Write-Host "Source: $sourcePath"
           Write-Host "Archive: $archivePath"
-          
+
           Compress-Archive -Path "$sourcePath\*" -DestinationPath $archivePath -Force
-          
+
           $archiveSize = (Get-Item $archivePath).Length
           Write-Host "Archive created: $archivePath ($([math]::Round($archiveSize/1MB, 2)) MB)"
 
@@ -363,17 +412,17 @@ jobs:
           echo "============================================"
           echo "Creating tar.gz archive"
           echo "============================================"
-          
+
           cd ./publish
-          
+
           ARCHIVE_NAME="${{ matrix.artifact_name }}.tar.gz"
           SOURCE_DIR="${{ matrix.artifact_name }}"
-          
+
           echo "Source: $SOURCE_DIR"
           echo "Archive: $ARCHIVE_NAME"
-          
+
           tar -czf "$ARCHIVE_NAME" "$SOURCE_DIR"
-          
+
           ARCHIVE_SIZE=$(stat -c%s "$ARCHIVE_NAME" 2>/dev/null || stat -f%z "$ARCHIVE_NAME" 2>/dev/null)
           echo "Archive created: $ARCHIVE_NAME ($(echo "scale=2; $ARCHIVE_SIZE/1024/1024" | bc 2>/dev/null || echo "unknown") MB)"
 
@@ -432,11 +481,11 @@ jobs:
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
           echo "Checking for existing release with tag: $TAG"
-          
+
           RELEASE_ID=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/releases/tags/$TAG" \
             | grep -o '"id": [0-9]*' | head -1 | grep -o '[0-9]*')
-          
+
           if [ -n "$RELEASE_ID" ]; then
             echo "Deleting existing release ID: $RELEASE_ID"
             curl -s -X DELETE -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
@@ -455,20 +504,22 @@ jobs:
           name: Release ${{ steps.tag.outputs.tag }}
           body: |
             ## DaJet Metadata — Self-Contained .NET 10.0
-            
+
             Full .NET Runtime included in `shared/Microsoft.NETCore.App/`.
-            
+
             ### Platforms
             | Platform | Architecture |
             |---|---|
             | Windows | x64, ARM64 |
             | Linux | x64, ARM64 |
             | macOS | x64, ARM64 (Apple Silicon) |
-            
+
             ### Structure
             ```
             win-x64/
             ├── DaJet.Metadata.dll
+            ├── DaJet.Data.dll
+            ├── DaJet.TypeSystem.dll
             ├── hostfxr.dll
             ├── coreclr.dll
             └── shared/
@@ -476,10 +527,12 @@ jobs:
                     └── 10.0.x/
                         └── (runtime files)
             ```
-            
+
             ### For pythonnet
             All builds include full runtime in `shared/` folder and `DaJet.Metadata.runtimeconfig.json`.
-          files: ./artifacts/*.zip
+          files: |
+            ./artifacts/*.zip
+            ./artifacts/*.tar.gz
           draft: false
           prerelease: ${{ contains(steps.tag.outputs.tag, 'alpha') || contains(steps.tag.outputs.tag, 'beta') }}
           generate_release_notes: true

@@ -478,21 +478,33 @@ jobs:
           echo "Release tag: $TAG"
 
       - name: Delete existing release if any
+        shell: bash
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
           echo "Checking for existing release with tag: $TAG"
 
-          RELEASE_ID=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/releases/tags/$TAG" \
-            | grep -o '"id": [0-9]*' | head -1 | grep -o '[0-9]*')
+          # Используем временную переменную чтобы избежать падения из-за set -e
+          RESPONSE=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/$TAG")
 
-          if [ -n "$RELEASE_ID" ]; then
-            echo "Deleting existing release ID: $RELEASE_ID"
-            curl -s -X DELETE -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-              "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID"
-            echo "Existing release deleted"
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          echo "HTTP status: $HTTP_CODE"
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            RELEASE_ID=$(echo "$BODY" | grep -o '"id": [0-9]*' | head -1 | grep -o '[0-9]*')
+            if [ -n "$RELEASE_ID" ]; then
+              echo "Deleting existing release ID: $RELEASE_ID"
+              curl -s -X DELETE -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID"
+              echo "Existing release deleted"
+            fi
+          elif [ "$HTTP_CODE" = "404" ]; then
+            echo "No existing release found (404)"
           else
-            echo "No existing release found"
+            echo "Unexpected HTTP status: $HTTP_CODE"
+            echo "Response: $BODY"
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

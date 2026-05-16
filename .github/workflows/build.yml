@@ -410,6 +410,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: ./artifacts
+          merge-multiple: true
 
       - name: Print artifacts structure
         run: |
@@ -475,13 +476,13 @@ jobs:
                     └── 10.0.x/
                         └── (runtime files)
             ```
-
-             ### For pythonnet
+            
+            ### For pythonnet
             All builds include full runtime in `shared/` folder and `DaJet.Metadata.runtimeconfig.json`.
-            files: ./artifacts/**/*
-            draft: false
-            prerelease: ${{ contains(steps.tag.outputs.tag, 'alpha') || contains(steps.tag.outputs.tag, 'beta') }}
-            generate_release_notes: true
+          files: ./artifacts/*.zip
+          draft: false
+          prerelease: ${{ contains(steps.tag.outputs.tag, 'alpha') || contains(steps.tag.outputs.tag, 'beta') }}
+          generate_release_notes: true
 
       - name: Print release URL
         run: |

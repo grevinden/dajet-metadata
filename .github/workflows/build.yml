@@ -232,47 +232,95 @@ jobs:
             echo "Hostfxr not found at: $FXR_SOURCE"
           fi
 
+      # ─── НОВЫЙ ШАГ: Очистка дубликатов runtime из корня (Windows) ───
       - name: Remove duplicate runtime files from root (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Write-Host "============================================"
-          Write-Host "Removing duplicate runtime files from root (Windows)"
+          Write-Host "Removing duplicate runtime files from root"
           Write-Host "============================================"
           
           $root = ".\publish\${{ matrix.artifact_name }}"
           
-          $toRemove = Get-ChildItem -Path $root -File | Where-Object {
-            ($_.Name -like "System.*.dll") -or
-            ($_.Name -like "Microsoft.*.dll" -and $_.Name -notlike "DaJet.*" -and $_.Name -notlike "Microsoft.Data.*") -or
-            ($_.Name -in @("netstandard.dll", "mscorlib.dll", "WindowsBase.dll", "Microsoft.NETCore.App.deps.json", "Microsoft.NETCore.App.runtimeconfig.json"))
-          }
+          # System.*.dll
+          $system = Get-ChildItem -Path $root -File | Where-Object { $_.Name -like "System.*.dll" }
+          Write-Host "Removing $($system.Count) System.*.dll files..."
+          $system | Remove-Item -Force
           
-          Write-Host "Removing $($toRemove.Count) duplicate files..."
-          $toRemove | ForEach-Object { Write-Host "  Removing: $($_.Name)" }
-          $toRemove | Remove-Item -Force
+          # Microsoft.*.dll (кроме DaJet.* и Microsoft.Data.*)
+          $ms = Get-ChildItem -Path $root -File | Where-Object {
+            $_.Name -like "Microsoft.*.dll" -and 
+            $_.Name -notlike "DaJet.*" -and 
+            $_.Name -notlike "Microsoft.Data.*"
+          }
+          Write-Host "Removing $($ms.Count) Microsoft.*.dll files..."
+          $ms | Remove-Item -Force
+          
+          # netstandard.dll, mscorlib.dll, WindowsBase.dll
+          Get-ChildItem -Path $root -File | Where-Object {
+            $_.Name -in @("netstandard.dll", "mscorlib.dll", "WindowsBase.dll", "mscorrc.dll", "msquic.dll")
+          } | Remove-Item -Force
+          
+          # coreclr.dll, clrjit.dll, clrgc.dll, clrgcexp.dll, clretwrc.dll, mscordaccore.dll, mscordbi.dll, hostpolicy.dll
+          Get-ChildItem -Path $root -File | Where-Object {
+            $_.Name -in @("coreclr.dll", "clrjit.dll", "clrgc.dll", "clrgcexp.dll", "clretwrc.dll", "hostpolicy.dll")
+          } | Remove-Item -Force
+          Get-ChildItem -Path $root -File | Where-Object { $_.Name -like "mscordaccore*.dll" } | Remove-Item -Force
+          Get-ChildItem -Path $root -File | Where-Object { $_.Name -eq "mscordbi.dll" } | Remove-Item -Force
+          
+          # createdump.exe
+          Get-ChildItem -Path $root -File | Where-Object { $_.Name -eq "createdump.exe" } | Remove-Item -Force
+          
+          # .version, Microsoft.NETCore.App.deps.json, Microsoft.NETCore.App.runtimeconfig.json
+          Get-ChildItem -Path $root -File | Where-Object {
+            $_.Name -in @(".version", "Microsoft.NETCore.App.deps.json", "Microsoft.NETCore.App.runtimeconfig.json")
+          } | Remove-Item -Force
           
           Write-Host "Remaining files in root:"
-          Get-ChildItem -Path $root -File | Select-Object Name | ForEach-Object { Write-Host "  $($_.Name)" }
+          Get-ChildItem -Path $root -File | ForEach-Object { Write-Host "  $($_.Name)" }
 
+      # ─── НОВЫЙ ШАГ: Очистка дубликатов runtime из корня (Unix) ───
       - name: Remove duplicate runtime files from root (Unix)
         if: runner.os != 'Windows'
         run: |
           echo "============================================"
-          echo "Removing duplicate runtime files from root (Unix)"
+          echo "Removing duplicate runtime files from root"
           echo "============================================"
           
           ROOT="./publish/${{ matrix.artifact_name }}"
           
-          echo "Removing System.*.dll, Microsoft.*.dll (except DaJet.* and Microsoft.Data.*), netstandard.dll, mscorlib.dll, WindowsBase.dll..."
+          # System.*.dll
+          echo "Removing System.*.dll..."
+          find "$ROOT" -maxdepth 1 -type f -name "System.*.dll" -delete -print
+          
+          # Microsoft.*.dll (кроме DaJet.* и Microsoft.Data.*)
+          echo "Removing Microsoft.*.dll (except DaJet.* and Microsoft.Data.*)..."
+          find "$ROOT" -maxdepth 1 -type f -name "Microsoft.*.dll" ! -name "DaJet.*" ! -name "Microsoft.Data.*" -delete -print
+          
+          # netstandard.dll, mscorlib.dll, WindowsBase.dll
+          echo "Removing netstandard.dll, mscorlib.dll, WindowsBase.dll..."
+          find "$ROOT" -maxdepth 1 -type f \( -name "netstandard.dll" -o -name "mscorlib.dll" -o -name "WindowsBase.dll" \) -delete -print
+          
+          # Нативные .so/.dylib из корня
+          echo "Removing native runtime libraries..."
           find "$ROOT" -maxdepth 1 -type f \( \
-            -name "System.*.dll" -o \
-            -name "System.*.so" -o \
-            -name "System.*.dylib" -o \
-            \( -name "Microsoft.*.dll" ! -name "DaJet.*" ! -name "Microsoft.Data.*" \) -o \
-            -name "netstandard.dll" -o \
-            -name "mscorlib.dll" -o \
-            -name "WindowsBase.dll" -o \
+            -name "libcoreclr.*" -o \
+            -name "libclrjit.*" -o \
+            -name "libclrgc.*" -o \
+            -name "libclrgcexp.*" -o \
+            -name "libmscordaccore.*" -o \
+            -name "libmscordbi.*" -o \
+            -name "libhostpolicy.*" -o \
+            -name "libcoreclrtraceptprovider.*" \
+          \) -delete -print
+          
+          # createdump
+          find "$ROOT" -maxdepth 1 -type f -name "createdump" -delete -print
+          
+          # Служебные файлы runtime
+          find "$ROOT" -maxdepth 1 -type f \( \
+            -name ".version" -o \
             -name "Microsoft.NETCore.App.deps.json" -o \
             -name "Microsoft.NETCore.App.runtimeconfig.json" \
           \) -delete -print
@@ -483,7 +531,6 @@ jobs:
           TAG="${{ steps.tag.outputs.tag }}"
           echo "Checking for existing release with tag: $TAG"
 
-          # Используем временную переменную чтобы избежать падения из-за set -e
           RESPONSE=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/releases/tags/$TAG")
 
@@ -532,8 +579,13 @@ jobs:
             ├── DaJet.Metadata.dll
             ├── DaJet.Data.dll
             ├── DaJet.TypeSystem.dll
-            ├── hostfxr.dll
-            ├── coreclr.dll
+            ├── Npgsql.dll
+            ├── Microsoft.Data.SqlClient.dll
+            ├── Azure.*.dll
+            ├── host/
+            │   └── fxr/
+            │       └── 10.0.x/
+            │           └── hostfxr.dll
             └── shared/
                 └── Microsoft.NETCore.App/
                     └── 10.0.x/
@@ -541,7 +593,7 @@ jobs:
             ```
 
             ### For pythonnet
-            All builds include full runtime in `shared/` folder and `DaJet.Metadata.runtimeconfig.json`.
+            No duplicate runtime files. All System.*.dll and runtime binaries are only in `shared/`.
           files: |
             ./artifacts/*.zip
             ./artifacts/*.tar.gz

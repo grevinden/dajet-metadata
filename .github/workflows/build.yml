@@ -55,7 +55,8 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Print runner info
+      # ─── Информация о раннере ───────────────────────────
+      - name: "[INFO] Runner info"
         shell: bash
         run: |
           echo "============================================"
@@ -73,19 +74,21 @@ jobs:
           echo "Disk space before:"
           df -h . 2>/dev/null || echo "Skipped on Windows"
 
+      # ─── Checkout ───────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.inputs.tag || github.ref }}
 
-      - name: Print checkout info
+      - name: "[INFO] Checkout info"
         shell: bash
         run: |
           echo "Checked out ref: $(git rev-parse HEAD)"
           echo "Branch: $(git branch --show-current)"
           echo "Tags: $(git tag --points-at HEAD)"
 
+      # ─── Setup .NET ─────────────────────────────────────
       - name: Setup .NET 10.0 SDK
         uses: actions/setup-dotnet@v4
         with:
@@ -97,7 +100,7 @@ jobs:
             src/dajet-data/dajet-data.csproj
             src/dajet-type-system/dajet-type-system.csproj
 
-      - name: Print .NET info
+      - name: "[INFO] .NET info"
         run: |
           echo "============================================"
           echo ".NET SDK version:"
@@ -112,12 +115,14 @@ jobs:
           echo "DOTNET_ROOT: $DOTNET_ROOT"
           echo "============================================"
 
-      - name: Restore dependencies
+      # ─── Restore ────────────────────────────────────────
+      - name: "[BUILD] Restore dependencies"
         run: |
           echo "Restoring packages for ${{ matrix.runtime }}..."
           dotnet restore src/dajet-metadata/dajet-metadata.csproj --runtime ${{ matrix.runtime }}
 
-      - name: Publish library (Windows)
+      # ─── Publish (Windows) ──────────────────────────────
+      - name: "[BUILD] Publish (Windows)"
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -133,10 +138,13 @@ jobs:
           Write-Host ""
           $fileCount = (Get-ChildItem -Path ./publish/${{ matrix.artifact_name }} -File -Recurse).Count
           $sizeMB = [math]::Round(((Get-ChildItem -Path ./publish/${{ matrix.artifact_name }} -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB), 2)
-          Write-Host "Published files count: $fileCount"
-          Write-Host "Published size: $sizeMB MB"
+          Write-Host "[INFO] Published files count: $fileCount"
+          Write-Host "[INFO] Published size: $sizeMB MB"
+          Write-Host "[INFO] Root files:"
+          Get-ChildItem -Path ./publish/${{ matrix.artifact_name }} -File | ForEach-Object { Write-Host "  $($_.Name)" }
 
-      - name: Publish library (Unix)
+      # ─── Publish (Unix) ─────────────────────────────────
+      - name: "[BUILD] Publish (Unix)"
         if: runner.os != 'Windows'
         shell: bash
         run: |
@@ -157,10 +165,13 @@ jobs:
             --output ./publish/${{ matrix.artifact_name }}
 
           echo ""
-          echo "Published files count: $(find ./publish/${{ matrix.artifact_name }} -type f 2>/dev/null | wc -l)"
-          echo "Published size: $(du -sh ./publish/${{ matrix.artifact_name }} 2>/dev/null | cut -f1)"
+          echo "[INFO] Published files count: $(find ./publish/${{ matrix.artifact_name }} -type f 2>/dev/null | wc -l)"
+          echo "[INFO] Published size: $(du -sh ./publish/${{ matrix.artifact_name }} 2>/dev/null | cut -f1)"
+          echo "[INFO] Root files:"
+          ls -la ./publish/${{ matrix.artifact_name }}/
 
-      - name: Copy .NET Runtime as shared folder (Windows)
+      # ─── Копирование shared/ и host/ (Windows) ──────────
+      - name: "[RUNTIME] Copy shared/ and host/ (Windows)"
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -169,36 +180,29 @@ jobs:
           Write-Host "============================================"
 
           $dotnetRoot = "$env:ProgramFiles\dotnet"
-          Write-Host "Dotnet root: $dotnetRoot"
-
           $runtimeVersion = Get-ChildItem "$dotnetRoot\shared\Microsoft.NETCore.App" | 
             Where-Object { $_.Name -like "10.0.*" } | 
             Sort-Object Name -Descending | 
             Select-Object -First 1
           Write-Host "Runtime version: $($runtimeVersion.Name)"
 
-          $source = "$dotnetRoot\shared\Microsoft.NETCore.App\$($runtimeVersion.Name)"
           $dest = ".\publish\${{ matrix.artifact_name }}\shared\Microsoft.NETCore.App\$($runtimeVersion.Name)"
-
-          Write-Host "Source: $source"
-          Write-Host "Dest: $dest"
-
           New-Item -ItemType Directory -Force -Path $dest
-          Copy-Item -Path "$source\*" -Destination $dest -Recurse -Force
-          Write-Host "Runtime copied to shared/Microsoft.NETCore.App/$($runtimeVersion.Name)"
+          Copy-Item -Path "$dotnetRoot\shared\Microsoft.NETCore.App\$($runtimeVersion.Name)\*" -Destination $dest -Recurse -Force
+          Write-Host "[OK] Runtime copied to shared/Microsoft.NETCore.App/$($runtimeVersion.Name)"
 
           $fxrSource = "$dotnetRoot\host\fxr\$($runtimeVersion.Name)"
           if (Test-Path $fxrSource) {
-            Write-Host "Copying hostfxr from: $fxrSource"
             $fxrDest = ".\publish\${{ matrix.artifact_name }}\host\fxr\$($runtimeVersion.Name)"
             New-Item -ItemType Directory -Force -Path $fxrDest
             Copy-Item -Path "$fxrSource\*" -Destination $fxrDest -Recurse -Force
-            Write-Host "Hostfxr copied to host/fxr/$($runtimeVersion.Name)"
+            Write-Host "[OK] Hostfxr copied to host/fxr/$($runtimeVersion.Name)"
           } else {
-            Write-Host "Hostfxr not found at: $fxrSource"
+            Write-Host "[WARN] Hostfxr not found at: $fxrSource"
           }
 
-      - name: Copy .NET Runtime as shared folder (Unix)
+      # ─── Копирование shared/ и host/ (Unix) ─────────────
+      - name: "[RUNTIME] Copy shared/ and host/ (Unix)"
         if: runner.os != 'Windows'
         run: |
           echo "============================================"
@@ -206,34 +210,26 @@ jobs:
           echo "============================================"
 
           DOTNET_ROOT="${DOTNET_ROOT:-$(dirname $(readlink -f $(which dotnet)))}"
-          echo "DOTNET_ROOT: $DOTNET_ROOT"
-
           RUNTIME_VERSION=$(ls "$DOTNET_ROOT/shared/Microsoft.NETCore.App" | grep "^10.0." | sort -V | tail -1)
           echo "Runtime version: $RUNTIME_VERSION"
 
-          SOURCE="$DOTNET_ROOT/shared/Microsoft.NETCore.App/$RUNTIME_VERSION"
           DEST="./publish/${{ matrix.artifact_name }}/shared/Microsoft.NETCore.App/$RUNTIME_VERSION"
-
-          echo "Source: $SOURCE"
-          echo "Dest: $DEST"
-
           mkdir -p "$DEST"
-          cp -r "$SOURCE/"* "$DEST/"
-          echo "Runtime copied to shared/Microsoft.NETCore.App/$RUNTIME_VERSION"
+          cp -r "$DOTNET_ROOT/shared/Microsoft.NETCore.App/$RUNTIME_VERSION/"* "$DEST/"
+          echo "[OK] Runtime copied to shared/Microsoft.NETCore.App/$RUNTIME_VERSION"
 
           FXR_SOURCE="$DOTNET_ROOT/host/fxr/$RUNTIME_VERSION"
           if [ -d "$FXR_SOURCE" ]; then
-            echo "Copying hostfxr from: $FXR_SOURCE"
             FXR_DEST="./publish/${{ matrix.artifact_name }}/host/fxr/$RUNTIME_VERSION"
             mkdir -p "$FXR_DEST"
             cp -r "$FXR_SOURCE/"* "$FXR_DEST/"
-            echo "Hostfxr copied to host/fxr/$RUNTIME_VERSION"
+            echo "[OK] Hostfxr copied to host/fxr/$RUNTIME_VERSION"
           else
-            echo "Hostfxr not found at: $FXR_SOURCE"
+            echo "[WARN] Hostfxr not found at: $FXR_SOURCE"
           fi
 
-      # ─── НОВЫЙ ШАГ: Очистка дубликатов runtime из корня (Windows) ───
-      - name: Remove duplicate runtime files from root (Windows)
+      # ─── Очистка дубликатов (Windows) ───────────────────
+      - name: "[CLEAN] Remove duplicate runtime files (Windows)"
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -243,45 +239,65 @@ jobs:
           
           $root = ".\publish\${{ matrix.artifact_name }}"
           
-          # System.*.dll
-          $system = Get-ChildItem -Path $root -File | Where-Object { $_.Name -like "System.*.dll" }
-          Write-Host "Removing $($system.Count) System.*.dll files..."
+          # 1. Все System.*.dll — только в shared/
+          $system = Get-ChildItem -Path $root -File | Where-Object { $_.Name -like "System.*.dll" -or $_.Name -eq "System.dll" }
+          Write-Host "[CLEAN] Removing $($system.Count) System.*.dll files..."
+          $system | ForEach-Object { Write-Host "  $_" }
           $system | Remove-Item -Force
           
-          # Microsoft.*.dll (кроме DaJet.* и Microsoft.Data.*)
-          $ms = Get-ChildItem -Path $root -File | Where-Object {
-            $_.Name -like "Microsoft.*.dll" -and 
-            $_.Name -notlike "DaJet.*" -and 
-            $_.Name -notlike "Microsoft.Data.*"
+          # 2. Microsoft.* runtime DLL (не NuGet-зависимости!)
+          $msRuntime = Get-ChildItem -Path $root -File | Where-Object {
+            $_.Name -in @(
+              "Microsoft.CSharp.dll",
+              "Microsoft.VisualBasic.Core.dll",
+              "Microsoft.VisualBasic.dll",
+              "Microsoft.Win32.Primitives.dll",
+              "Microsoft.Win32.Registry.dll"
+            )
           }
-          Write-Host "Removing $($ms.Count) Microsoft.*.dll files..."
-          $ms | Remove-Item -Force
+          Write-Host "[CLEAN] Removing $($msRuntime.Count) Microsoft.* runtime files..."
+          $msRuntime | ForEach-Object { Write-Host "  $_" }
+          $msRuntime | Remove-Item -Force
           
-          # netstandard.dll, mscorlib.dll, WindowsBase.dll
-          Get-ChildItem -Path $root -File | Where-Object {
-            $_.Name -in @("netstandard.dll", "mscorlib.dll", "WindowsBase.dll", "mscorrc.dll", "msquic.dll")
-          } | Remove-Item -Force
+          # 3. netstandard.dll, mscorlib.dll, WindowsBase.dll
+          $otherRuntime = Get-ChildItem -Path $root -File | Where-Object {
+            $_.Name -in @("netstandard.dll", "mscorlib.dll", "WindowsBase.dll")
+          }
+          Write-Host "[CLEAN] Removing $($otherRuntime.Count) other runtime files..."
+          $otherRuntime | ForEach-Object { Write-Host "  $_" }
+          $otherRuntime | Remove-Item -Force
           
-          # coreclr.dll, clrjit.dll, clrgc.dll, clrgcexp.dll, clretwrc.dll, mscordaccore.dll, mscordbi.dll, hostpolicy.dll
-          Get-ChildItem -Path $root -File | Where-Object {
-            $_.Name -in @("coreclr.dll", "clrjit.dll", "clrgc.dll", "clrgcexp.dll", "clretwrc.dll", "hostpolicy.dll")
-          } | Remove-Item -Force
-          Get-ChildItem -Path $root -File | Where-Object { $_.Name -like "mscordaccore*.dll" } | Remove-Item -Force
-          Get-ChildItem -Path $root -File | Where-Object { $_.Name -eq "mscordbi.dll" } | Remove-Item -Force
+          # 4. Нативные runtime DLL
+          $native = Get-ChildItem -Path $root -File | Where-Object {
+            $_.Name -in @(
+              "coreclr.dll", "clrjit.dll", "clrgc.dll", "clrgcexp.dll", "clretwrc.dll",
+              "hostpolicy.dll", "mscorrc.dll", "msquic.dll", "createdump.exe"
+            )
+          }
+          Write-Host "[CLEAN] Removing $($native.Count) native runtime files..."
+          $native | ForEach-Object { Write-Host "  $_" }
+          $native | Remove-Item -Force
           
-          # createdump.exe
-          Get-ChildItem -Path $root -File | Where-Object { $_.Name -eq "createdump.exe" } | Remove-Item -Force
+          # 5. mscordaccore*.dll, mscordbi.dll
+          $diag = Get-ChildItem -Path $root -File | Where-Object { $_.Name -like "mscordaccore*.dll" -or $_.Name -eq "mscordbi.dll" }
+          Write-Host "[CLEAN] Removing $($diag.Count) diagnostic runtime files..."
+          $diag | ForEach-Object { Write-Host "  $_" }
+          $diag | Remove-Item -Force
           
-          # .version, Microsoft.NETCore.App.deps.json, Microsoft.NETCore.App.runtimeconfig.json
-          Get-ChildItem -Path $root -File | Where-Object {
+          # 6. Служебные файлы
+          $svc = Get-ChildItem -Path $root -File | Where-Object {
             $_.Name -in @(".version", "Microsoft.NETCore.App.deps.json", "Microsoft.NETCore.App.runtimeconfig.json")
-          } | Remove-Item -Force
+          }
+          Write-Host "[CLEAN] Removing $($svc.Count) service files..."
+          $svc | ForEach-Object { Write-Host "  $_" }
+          $svc | Remove-Item -Force
           
-          Write-Host "Remaining files in root:"
+          Write-Host ""
+          Write-Host "[INFO] Remaining files in root:"
           Get-ChildItem -Path $root -File | ForEach-Object { Write-Host "  $($_.Name)" }
 
-      # ─── НОВЫЙ ШАГ: Очистка дубликатов runtime из корня (Unix) ───
-      - name: Remove duplicate runtime files from root (Unix)
+      # ─── Очистка дубликатов (Unix) ──────────────────────
+      - name: "[CLEAN] Remove duplicate runtime files (Unix)"
         if: runner.os != 'Windows'
         run: |
           echo "============================================"
@@ -290,51 +306,53 @@ jobs:
           
           ROOT="./publish/${{ matrix.artifact_name }}"
           
-          # System.*.dll
-          echo "Removing System.*.dll..."
-          find "$ROOT" -maxdepth 1 -type f -name "System.*.dll" -delete -print
+          # 1. System.*.dll/.so/.dylib
+          echo "[CLEAN] Removing System.* files..."
+          find "$ROOT" -maxdepth 1 -type f \( -name "System.*.dll" -o -name "System.*.so" -o -name "System.*.dylib" -o -name "System.dll" \) -delete -print
           
-          # Microsoft.*.dll (кроме DaJet.* и Microsoft.Data.*)
-          echo "Removing Microsoft.*.dll (except DaJet.* and Microsoft.Data.*)..."
-          find "$ROOT" -maxdepth 1 -type f -name "Microsoft.*.dll" ! -name "DaJet.*" ! -name "Microsoft.Data.*" -delete -print
+          # 2. Microsoft.* runtime DLL (не NuGet-зависимости)
+          echo "[CLEAN] Removing Microsoft.* runtime files..."
+          find "$ROOT" -maxdepth 1 -type f \( \
+            -name "Microsoft.CSharp.dll" -o \
+            -name "Microsoft.VisualBasic.Core.dll" -o \
+            -name "Microsoft.VisualBasic.dll" -o \
+            -name "Microsoft.Win32.Primitives.dll" -o \
+            -name "Microsoft.Win32.Registry.dll" \
+          \) -delete -print
           
-          # netstandard.dll, mscorlib.dll, WindowsBase.dll
-          echo "Removing netstandard.dll, mscorlib.dll, WindowsBase.dll..."
+          # 3. netstandard.dll, mscorlib.dll, WindowsBase.dll
+          echo "[CLEAN] Removing netstandard/mscorlib/WindowsBase..."
           find "$ROOT" -maxdepth 1 -type f \( -name "netstandard.dll" -o -name "mscorlib.dll" -o -name "WindowsBase.dll" \) -delete -print
           
-          # Нативные .so/.dylib из корня
-          echo "Removing native runtime libraries..."
+          # 4. Нативные библиотеки
+          echo "[CLEAN] Removing native runtime libraries..."
           find "$ROOT" -maxdepth 1 -type f \( \
             -name "libcoreclr.*" -o \
             -name "libclrjit.*" -o \
             -name "libclrgc.*" -o \
             -name "libclrgcexp.*" -o \
+            -name "libhostpolicy.*" -o \
+            -name "libcoreclrtraceptprovider.*" -o \
             -name "libmscordaccore.*" -o \
             -name "libmscordbi.*" -o \
-            -name "libhostpolicy.*" -o \
-            -name "libcoreclrtraceptprovider.*" \
+            -name "createdump" \
           \) -delete -print
           
-          # createdump
-          find "$ROOT" -maxdepth 1 -type f -name "createdump" -delete -print
-          
-          # Служебные файлы runtime
-          find "$ROOT" -maxdepth 1 -type f \( \
-            -name ".version" -o \
-            -name "Microsoft.NETCore.App.deps.json" -o \
-            -name "Microsoft.NETCore.App.runtimeconfig.json" \
-          \) -delete -print
+          # 5. Служебные файлы
+          echo "[CLEAN] Removing service files..."
+          find "$ROOT" -maxdepth 1 -type f \( -name ".version" -o -name "Microsoft.NETCore.App.deps.json" -o -name "Microsoft.NETCore.App.runtimeconfig.json" \) -delete -print
           
           echo ""
-          echo "Remaining files in root:"
+          echo "[INFO] Remaining files in root:"
           ls -la "$ROOT"
 
-      - name: Create runtimeconfig for pythonnet (Windows)
+      # ─── runtimeconfig.json (Windows) ────────────────────
+      - name: "[CONFIG] Create runtimeconfig.json (Windows)"
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Write-Host "============================================"
-          Write-Host "Creating runtimeconfig.json (Windows)"
+          Write-Host "Creating runtimeconfig.json"
           Write-Host "============================================"
 
           $dotnetRoot = "$env:ProgramFiles\dotnet"
@@ -367,15 +385,16 @@ jobs:
           $configPath = ".\publish\${{ matrix.artifact_name }}\DaJet.Metadata.runtimeconfig.json"
           $runtimeconfig | Out-File -FilePath $configPath -Encoding utf8
 
-          Write-Host "Created: $configPath"
+          Write-Host "[OK] Created: $configPath"
           Write-Host "Content:"
           Get-Content $configPath | Write-Host
 
-      - name: Create runtimeconfig for pythonnet (Unix)
+      # ─── runtimeconfig.json (Unix) ───────────────────────
+      - name: "[CONFIG] Create runtimeconfig.json (Unix)"
         if: runner.os != 'Windows'
         run: |
           echo "============================================"
-          echo "Creating runtimeconfig.json (Unix)"
+          echo "Creating runtimeconfig.json"
           echo "============================================"
 
           RUNTIME_VERSION=$(ls "$DOTNET_ROOT/shared/Microsoft.NETCore.App" | grep "^10.0." | sort -V | tail -1)
@@ -402,11 +421,12 @@ jobs:
           }
           EOF
 
-          echo "Created: $CONFIG_PATH"
+          echo "[OK] Created: $CONFIG_PATH"
           echo "Content:"
           cat "$CONFIG_PATH"
 
-      - name: Print publish summary
+      # ─── Сводка перед архивацией ─────────────────────────
+      - name: "[INFO] Publish summary"
         shell: bash
         run: |
           echo "============================================"
@@ -415,27 +435,28 @@ jobs:
           echo "Total files: $(find ./publish/${{ matrix.artifact_name }} -type f 2>/dev/null | wc -l)"
           echo "Total size: $(du -sh ./publish/${{ matrix.artifact_name }} 2>/dev/null | cut -f1)"
           echo ""
-          echo "Top-level contents:"
+          echo "Root contents:"
           ls -la ./publish/${{ matrix.artifact_name }} 2>/dev/null || echo "Cannot list"
           echo ""
-          echo "shared folder check:"
+          echo "shared folder:"
           if [ -d "./publish/${{ matrix.artifact_name }}/shared/Microsoft.NETCore.App" ]; then
-            echo "  OK shared/Microsoft.NETCore.App exists"
+            echo "  [OK] shared/Microsoft.NETCore.App exists"
             ls "./publish/${{ matrix.artifact_name }}/shared/Microsoft.NETCore.App/"
           else
-            echo "  MISSING shared/Microsoft.NETCore.App"
+            echo "  [MISS] shared/Microsoft.NETCore.App NOT FOUND"
           fi
           echo ""
-          echo "Key files check:"
-          for f in "DaJet.Metadata.dll" "coreclr.dll" "libcoreclr.so" "libcoreclr.dylib" "hostfxr.dll" "libhostfxr.so" "libhostfxr.dylib" "DaJet.Metadata.runtimeconfig.json"; do
-            if find ./publish/${{ matrix.artifact_name }} -name "$f" 2>/dev/null | head -1; then
-              echo "  OK $f"
+          echo "Key files:"
+          for f in "DaJet.Metadata.dll" "hostfxr.dll" "libhostfxr.so" "libhostfxr.dylib" "DaJet.Metadata.runtimeconfig.json"; do
+            if find ./publish/${{ matrix.artifact_name }} -name "$f" 2>/dev/null | head -1 > /dev/null; then
+              echo "  [OK] $f"
             else
-              echo "  MISSING $f"
+              echo "  [MISS] $f"
             fi
           done
 
-      - name: Create archive (Windows)
+      # ─── Архив (Windows) ─────────────────────────────────
+      - name: "[ARCHIVE] Create ZIP (Windows)"
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -452,9 +473,10 @@ jobs:
           Compress-Archive -Path "$sourcePath\*" -DestinationPath $archivePath -Force
 
           $archiveSize = (Get-Item $archivePath).Length
-          Write-Host "Archive created: $archivePath ($([math]::Round($archiveSize/1MB, 2)) MB)"
+          Write-Host "[OK] Archive created: $archivePath ($([math]::Round($archiveSize/1MB, 2)) MB)"
 
-      - name: Create archive (Unix)
+      # ─── Архив (Unix) ────────────────────────────────────
+      - name: "[ARCHIVE] Create tar.gz (Unix)"
         if: runner.os != 'Windows'
         run: |
           echo "============================================"
@@ -472,8 +494,9 @@ jobs:
           tar -czf "$ARCHIVE_NAME" "$SOURCE_DIR"
 
           ARCHIVE_SIZE=$(stat -c%s "$ARCHIVE_NAME" 2>/dev/null || stat -f%z "$ARCHIVE_NAME" 2>/dev/null)
-          echo "Archive created: $ARCHIVE_NAME ($(echo "scale=2; $ARCHIVE_SIZE/1024/1024" | bc 2>/dev/null || echo "unknown") MB)"
+          echo "[OK] Archive created: $ARCHIVE_NAME ($(echo "scale=2; $ARCHIVE_SIZE/1024/1024" | bc 2>/dev/null || echo "unknown") MB)"
 
+      # ─── Загрузка артефакта ──────────────────────────────
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -481,11 +504,11 @@ jobs:
           path: ./publish/${{ matrix.artifact_name }}.${{ matrix.archive_ext }}
           retention-days: 30
 
-      - name: Print done message
+      - name: "[DONE] Job completed"
         shell: bash
         run: |
           echo "============================================"
-          echo "Job completed for ${{ matrix.artifact_name }}"
+          echo "[OK] Job completed for ${{ matrix.artifact_name }}"
           echo "============================================"
 
   release:
@@ -495,7 +518,7 @@ jobs:
       github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     steps:
-      - name: Print release info
+      - name: "[INFO] Release info"
         run: |
           echo "============================================"
           echo "Creating release"
@@ -509,7 +532,7 @@ jobs:
           path: ./artifacts
           merge-multiple: true
 
-      - name: Print artifacts structure
+      - name: "[INFO] Artifacts structure"
         run: |
           echo "Downloaded artifacts:"
           find ./artifacts -type f -exec ls -lh {} \;
@@ -545,7 +568,7 @@ jobs:
               echo "Deleting existing release ID: $RELEASE_ID"
               curl -s -X DELETE -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
                 "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID"
-              echo "Existing release deleted"
+              echo "[OK] Existing release deleted"
             fi
           elif [ "$HTTP_CODE" = "404" ]; then
             echo "No existing release found (404)"
@@ -582,6 +605,7 @@ jobs:
             ├── Npgsql.dll
             ├── Microsoft.Data.SqlClient.dll
             ├── Azure.*.dll
+            ├── Microsoft.Extensions.*.dll
             ├── host/
             │   └── fxr/
             │       └── 10.0.x/
@@ -593,7 +617,8 @@ jobs:
             ```
 
             ### For pythonnet
-            No duplicate runtime files. All System.*.dll and runtime binaries are only in `shared/`.
+            No duplicate runtime files. NuGet dependencies kept in root.
+            All System.*.dll and runtime binaries are only in `shared/`.
           files: |
             ./artifacts/*.zip
             ./artifacts/*.tar.gz
@@ -601,9 +626,9 @@ jobs:
           prerelease: ${{ contains(steps.tag.outputs.tag, 'alpha') || contains(steps.tag.outputs.tag, 'beta') }}
           generate_release_notes: true
 
-      - name: Print release URL
+      - name: "[DONE] Release URL"
         run: |
           echo "============================================"
-          echo "Release created!"
+          echo "[OK] Release created!"
           echo "URL: https://github.com/${{ github.repository }}/releases/tag/${{ steps.tag.outputs.tag }}"
           echo "============================================"
